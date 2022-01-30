@@ -1,0 +1,19 @@
+cabal-version: 3.0
+name: functorial-algebras
+version: 0.1.0.0
+
+author: Gustavo Bicalho
+maintainer: gusbicalho@gmail.com
+
+common common-options
+  build-depends: base ^>=4.16.0.0
+  default-language: GHC2021
+  default-extensions:
+    DataKinds
+
+library
+  import: common-options
+  hs-source-dirs: src
+  build-depends:
+  exposed-modules:
+    FunctorialAlgebras
