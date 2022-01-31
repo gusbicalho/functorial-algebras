@@ -5,6 +5,7 @@ module Next.FunAlg where
 
 import Control.Monad (ap, void, (>=>))
 import Data.Kind (Type)
+import StateC (StateC (..))
 
 -- Syntax tree for top-level and scoped programs
 
@@ -111,40 +112,49 @@ handleE ealg@EndoAlgebra{pureE, callE, enterE} =
 -- Helpers to lift effect functors into Prog or ScopedProg
 
 class
-  (Monad p, Functor scopes, Functor algs, Functor scopedAlgs) =>
-  IsProg p algs scopes scopedAlgs
-    | p -> algs scopes scopedAlgs
+  (Monad p, Functor (AlgebraicSig p)) =>
+  HasCall p
   where
-  call :: algs (p x) -> p x
-  scoped :: scopes (ScopedProg scopedAlgs scopes x) -> p x
+  type AlgebraicSig p :: Signature
+  call :: AlgebraicSig p (p x) -> p x
 
 instance
   (Functor algs, Functor scopes, Functor scopedAlgs) =>
-  IsProg (Prog algs scopes scopedAlgs) algs scopes scopedAlgs
+  HasCall (Prog algs scopes scopedAlgs)
   where
+  type AlgebraicSig (Prog algs scopes scopedAlgs) = algs
   call = Call
+
+instance
+  (Functor algs, Functor scopes) =>
+  HasCall (ScopedProg algs scopes)
+  where
+  type AlgebraicSig (ScopedProg algs scopes) = algs
+  call = CallE
+
+class
+  (Monad p, Functor (ScopesSig p), Functor (ScopedAlgebraicSig p)) =>
+  HasScoped p
+  where
+  type ScopesSig p :: Signature
+  type ScopedAlgebraicSig p :: Signature
+  scoped :: ScopesSig p (ScopedProg (ScopedAlgebraicSig p) (ScopesSig p) x) -> p x
+
+instance
+  (Functor algs, Functor scopes, Functor scopedAlgs) =>
+  HasScoped (Prog algs scopes scopedAlgs)
+  where
+  type ScopesSig (Prog algs scopes scopedAlgs) = scopes
+  type ScopedAlgebraicSig (Prog algs scopes scopedAlgs) = scopedAlgs
   scoped op = Enter op pure
 
 instance
   (Functor algs, Functor scopes) =>
-  IsProg (ScopedProg algs scopes) algs scopes algs
+  HasScoped (ScopedProg algs scopes)
   where
-  call = CallE
+  type ScopesSig (ScopedProg algs scopes) = scopes
+  type ScopedAlgebraicSig (ScopedProg algs scopes) = algs
   scoped = EnterE . fmap (fmap pure)
-
--- State carrier
-
-newtype StateC s a = StateC {runStateC :: s -> (s, a)}
-  deriving stock (Functor)
-
-instance Applicative (StateC s) where
-  pure a = StateC (\s -> (s, a))
-  (<*>) = ap
-
-instance Monad (StateC s) where
-  stateA >>= k = StateC $ \s ->
-    let !(!s1, !a) = runStateC stateA s
-     in runStateC (k a) s1
 
 -- State effect
 
@@ -154,19 +164,19 @@ data State s x = Swap (s -> s) ((s, s) -> x)
 data Local s x = Local s x
   deriving stock (Functor)
 
-swap :: IsProg p (State s) scopes scopedAlgs => (s -> s) -> p (s, s)
+swap :: (HasCall p, AlgebraicSig p ~ State s) => (s -> s) -> p (s, s)
 swap f = call (Swap f pure)
 
-modify :: IsProg f (State s) scopes scopedAlgs => (s -> s) -> f ()
+modify :: (HasCall p, AlgebraicSig p ~ State s) => (s -> s) -> p ()
 modify f = void (swap f)
 
-get :: IsProg p (State s) scopes scopedAlgs => p s
+get :: (HasCall p, AlgebraicSig p ~ State s) => p s
 get = snd <$> swap id
 
-put :: IsProg f (State s) scopes scopedAlgs => s -> f ()
+put :: (HasCall p, AlgebraicSig p ~ State s) => s -> p ()
 put s = void $ swap (const s)
 
-local :: IsProg p algs (Local s) scopedAlgs => s -> ScopedProg scopedAlgs (Local s) x -> p x
+local :: (HasScoped p, ScopesSig p ~ Local s) => s -> ScopedProg (ScopedAlgebraicSig p) (ScopesSig p) x -> p x
 local s prog = scoped (Local s prog)
 
 -- Handle program with global state and local scoping

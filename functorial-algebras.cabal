@@ -30,3 +30,4 @@ library
     FunctorialAlgebras.ParallelComposition
     FunctorialAlgebras.ThrowCatch
     Next.FunAlg
+    StateC

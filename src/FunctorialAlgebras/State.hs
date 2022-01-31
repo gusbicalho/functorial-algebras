@@ -1,8 +1,9 @@
 {-# LANGUAGE BlockArguments #-}
+
 module FunctorialAlgebras.State where
 
-import Control.Monad (ap)
 import FunctorialAlgebras (EndoAlgebra (..), Prog, call, handleE, scoped)
+import StateC (StateC (..))
 
 data State s x = Get (s -> x) | Put s x
   deriving stock (Functor)
@@ -29,18 +30,6 @@ restoring prog = do
   s <- get
   local s prog
 
-newtype StateC s a = StateC {runStateC :: s -> (s, a)}
-  deriving stock (Functor)
-
-instance Applicative (StateC s) where
-  pure a = StateC (\s -> (s, a))
-  (<*>) = ap
-
-instance Monad (StateC s) where
-  stateA >>= k = StateC $ \s ->
-    let !(!s1, !a) = runStateC stateA s
-     in runStateC (k a) s1
-
 handleState :: forall s x. s -> Prog (State s) (Local s) x -> (s, x)
 handleState initialState prog =
   runStateC
@@ -64,10 +53,10 @@ handleState initialState prog =
 
 a :: Integer -> (Integer, Integer)
 a = flip handleState do
-  modify (+(1 :: Integer))
-  modify (*3)
+  modify (+ (1 :: Integer))
+  modify (* 3)
   x <- restoring do
-    modify (*2)
-    modify (+7)
+    modify (* 2)
+    modify (+ 7)
     get
   pure x
