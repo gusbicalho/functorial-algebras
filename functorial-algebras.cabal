@@ -29,5 +29,5 @@ library
     FunctorialAlgebras.State
     FunctorialAlgebras.ParallelComposition
     FunctorialAlgebras.ThrowCatch
-    Next.FunAlg
+    SplitScopedProg.FunAlg
     StateC

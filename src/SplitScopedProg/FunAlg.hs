@@ -1,7 +1,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE FunctionalDependencies #-}
 
-module Next.FunAlg where
+module SplitScopedProg.FunAlg where
 
 import Control.Monad (ap, void, (>=>))
 import Data.Kind (Type)
