@@ -26,4 +26,6 @@ library
   exposed-modules:
     FunctorialAlgebras
     FunctorialAlgebras.NonDet
+    FunctorialAlgebras.State
+    FunctorialAlgebras.ParallelComposition
     FunctorialAlgebras.ThrowCatch
