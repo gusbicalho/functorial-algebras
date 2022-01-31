@@ -3,7 +3,6 @@
 module FunctorialAlgebras.ParallelComposition where
 
 import Control.Monad (ap, join, void)
-import Data.Functor ((<&>))
 import FunctorialAlgebras (BaseAlgebra (..), EndoAlgebra (..), Prog, call, handle, scoped)
 import Prelude hiding (last)
 
@@ -120,16 +119,6 @@ lastR r1 r2 = case r1 of
       rr1 <- m1
       rr2 <- m2
       pure $ lastR rr1 rr2
-
-bothR :: Monad m => Resumption m a -> Resumption m a -> Resumption m (a, a)
-bothR r1 r2 = case r1 of
-  Done a1 -> (a1,) <$> r2
-  More m1 -> case r2 of
-    Done a2 -> r1 <&> (,a2)
-    More m2 -> More do
-      rr1 <- m1
-      rr2 <- m2
-      pure $ bothR rr1 rr2
 
 instance Monad m => Applicative (Resumption m) where
   pure a = Done a

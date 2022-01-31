@@ -53,6 +53,7 @@ data SearchStrategy x
   = DFS x
   | {-
     pretty sure i did not get the impl for this one right
+    so I'm leaving this out
     | BFS x
     -}
     DBS Word x
