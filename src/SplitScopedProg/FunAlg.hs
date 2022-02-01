@@ -3,7 +3,7 @@
 
 module SplitScopedProg.FunAlg where
 
-import Control.Monad (ap, void)
+import Control.Monad (ap, join, void)
 import Data.Kind (Type)
 import StateC (StateC (..))
 
@@ -217,3 +217,64 @@ b i = handleLocalStateOnly do
 
 -- >>> b 1
 -- (6, 19)
+
+-- Throw effect
+
+data Throw e x = Throw e
+  deriving stock (Functor)
+
+throw :: a -> Prog (Throw a) scopes scopedAlgs x
+throw = call . Throw
+
+-- Catch effect
+
+data Catch e x = Catch x (e -> x)
+  deriving stock (Functor)
+
+catch ::
+  (Functor scopedAlgs, Functor algs) =>
+  Prog scopedAlgs (Catch e) scopedAlgs x ->
+  (e -> Prog scopedAlgs (Catch e) scopedAlgs x) ->
+  Prog algs (Catch e) scopedAlgs x
+catch action recovery = scoped $ (Catch action recovery)
+
+handleThrowInsideCatch ::
+  forall e x.
+  Prog Void1 (Catch e) (Throw e) x ->
+  x
+handleThrowInsideCatch prog =
+  handle EndoAlgebra{pureE, callE, enterE} BaseAlgebra{callB, enterB} id prog
+ where
+  callB :: forall a. Void1 a -> a
+  callB = \case {}
+  enterB :: forall a. Catch e (Either e a) -> a
+  enterB = \case
+    Catch prog recover ->
+      case prog of
+        Left e -> case recover e of
+          -- This should not happen, but to prevent it we need a way to
+          -- say that the recovery block in Catch must run in the parent scope
+          Left _ -> error "Thrown inside top-level catch recovery"
+          Right a -> a
+        Right a -> a
+  pureE = pure
+  callE :: Throw e (Either e a) -> Either e a
+  callE = \case
+    Throw e -> Left e
+  enterE :: Catch e (Either e (Either e a)) -> Either e a
+  enterE = \case
+    Catch prog recovery -> case prog of
+      Left e -> join $ recovery e
+      Right a -> a
+
+throwInsideCatch :: String
+throwInsideCatch = handleThrowInsideCatch do
+  catch
+    do throw 'a'
+    \e -> pure $ "thrown: " <> [e]
+
+throwInCatchRecovery :: String
+throwInCatchRecovery = handleThrowInsideCatch do
+  catch
+    do throw 'a'
+    \e -> throw e
