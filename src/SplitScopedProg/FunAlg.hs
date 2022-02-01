@@ -3,7 +3,7 @@
 
 module SplitScopedProg.FunAlg where
 
-import Control.Monad (ap, void, (>=>))
+import Control.Monad (ap, void)
 import Data.Kind (Type)
 import StateC (StateC (..))
 
@@ -15,12 +15,12 @@ type Prog :: Signature -> Signature -> Signature -> Type -> Type
 data Prog algs scopes scopedAlgs x where
   Pure :: x -> Prog algs scopes scopedAlgs x
   Call :: (algs (Prog algs scopes scopedAlgs x)) -> Prog algs scopes scopedAlgs x
-  Enter :: scopes (ScopedProg scopedAlgs scopes a) -> (a -> Prog algs scopes scopedAlgs x) -> Prog algs scopes scopedAlgs x
+  Enter :: scopes (ScopedProg scopedAlgs scopes (Prog algs scopes scopedAlgs x)) -> Prog algs scopes scopedAlgs x
 
-instance (Functor algs) => Functor (Prog algs scopes scopedAlgs) where
+instance (Functor algs, Functor scopes, Functor scopedAlgs) => Functor (Prog algs scopes scopedAlgs) where
   fmap f (Pure a) = Pure (f a)
   fmap f (Call algOp) = Call (fmap (fmap f) algOp)
-  fmap f (Enter innerOp k) = Enter innerOp (fmap f . k)
+  fmap f (Enter innerOp) = Enter $ (fmap . fmap . fmap $ f) innerOp
 
 type ScopedProg :: Signature -> Signature -> Type -> Type
 data ScopedProg algs scopes x where
@@ -36,7 +36,7 @@ instance (Functor algs, Functor scopes, Functor scopedAlgs) => Applicative (Prog
 instance (Functor algs, Functor scopes, Functor scopedAlgs) => Monad (Prog algs scopes scopedAlgs) where
   Pure x >>= k = k x
   Call algOp >>= k = Call (fmap (>>= k) algOp)
-  Enter innerOp k1 >>= k = Enter innerOp (k1 >=> k)
+  Enter innerOp >>= k = Enter ((fmap . fmap) (>>= k) innerOp)
 
 instance (Functor algs, Functor scopes) => Applicative (ScopedProg algs scopes) where
   pure = PureE
@@ -85,7 +85,7 @@ handleBase handleScoped BaseAlgebra{callB, enterB} gen = go
   go :: Prog algs scopes scopedAlgs a -> b
   go (Pure a) = gen a
   go (Call algOp) = callB $ fmap go algOp
-  go (Enter innerOp k) = enterB (fmap (handleScoped . fmap (go . k)) innerOp)
+  go (Enter innerOp) = enterB (fmap (handleScoped . fmap go) innerOp)
 
 handleScoped ::
   forall f x algs scopes.
@@ -146,7 +146,7 @@ instance
   where
   type ScopesSig (Prog algs scopes scopedAlgs) = scopes
   type ScopedAlgebraicSig (Prog algs scopes scopedAlgs) = scopedAlgs
-  scoped op = Enter op pure
+  scoped = Enter . fmap (fmap pure)
 
 instance
   (Functor algs, Functor scopes) =>
