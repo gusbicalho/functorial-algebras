@@ -11,41 +11,26 @@ import StateC (StateC (..))
 
 type Signature = Type -> Type
 
-type Prog :: Signature -> Signature -> Signature -> Type -> Type
-data Prog algs scopes scopedAlgs x where
-  Pure :: x -> Prog algs scopes scopedAlgs x
-  Call :: (algs (Prog algs scopes scopedAlgs x)) -> Prog algs scopes scopedAlgs x
-  Enter :: scopes (ScopedProg scopedAlgs scopes (Prog algs scopes scopedAlgs x)) -> Prog algs scopes scopedAlgs x
+newtype Prog algs scopes scopedAlgs x = Prog
+  { getProg :: Syntax algs scopes (Prog scopedAlgs scopes scopedAlgs) x
+  }
+  deriving newtype (Functor, Applicative, Monad)
 
-instance (Functor algs, Functor scopes, Functor scopedAlgs) => Functor (Prog algs scopes scopedAlgs) where
-  fmap f (Pure a) = Pure (f a)
-  fmap f (Call algOp) = Call (fmap (fmap f) algOp)
-  fmap f (Enter innerOp) = Enter $ (fmap . fmap . fmap $ f) innerOp
-
-type ScopedProg :: Signature -> Signature -> Type -> Type
-data ScopedProg algs scopes x where
-  PureE :: x -> ScopedProg algs scopes x
-  CallE :: (algs (ScopedProg algs scopes x)) -> ScopedProg algs scopes x
-  EnterE :: (scopes (ScopedProg algs scopes (ScopedProg algs scopes x))) -> ScopedProg algs scopes x
+type Syntax :: Signature -> Signature -> Signature -> Type -> Type
+data Syntax algs scopes scopedSyntax x where
+  Pure :: x -> Syntax algs scopes scopedAlgs x
+  Call :: (algs (Syntax algs scopes scopedAlgs x)) -> Syntax algs scopes scopedAlgs x
+  Enter :: scopes (scopedSyntax (Syntax algs scopes scopedSyntax x)) -> Syntax algs scopes scopedSyntax x
   deriving stock (Functor)
 
-instance (Functor algs, Functor scopes, Functor scopedAlgs) => Applicative (Prog algs scopes scopedAlgs) where
+instance (Functor algs, Functor scopes, Functor scopedAlgs) => Applicative (Syntax algs scopes scopedAlgs) where
   pure = Pure
   (<*>) = ap
 
-instance (Functor algs, Functor scopes, Functor scopedAlgs) => Monad (Prog algs scopes scopedAlgs) where
+instance (Functor algs, Functor scopes, Functor scopedAlgs) => Monad (Syntax algs scopes scopedAlgs) where
   Pure x >>= k = k x
   Call algOp >>= k = Call (fmap (>>= k) algOp)
   Enter innerOp >>= k = Enter ((fmap . fmap) (>>= k) innerOp)
-
-instance (Functor algs, Functor scopes) => Applicative (ScopedProg algs scopes) where
-  pure = PureE
-  (<*>) = ap
-
-instance (Functor algs, Functor scopes) => Monad (ScopedProg algs scopes) where
-  PureE x >>= k = k x
-  CallE algOp >>= k = CallE (fmap (>>= k) algOp)
-  EnterE scopedOp >>= k = EnterE (fmap (fmap (>>= k)) scopedOp)
 
 -- Handlers
 
@@ -75,14 +60,14 @@ handle ealg = handleBase (handleScoped ealg)
 handleBase ::
   forall algs scopes scopedAlgs f a b.
   (Functor algs, Functor scopes, Functor f, Functor scopedAlgs) =>
-  (forall x. ScopedProg scopedAlgs scopes x -> f x) ->
+  (forall x. Prog scopedAlgs scopes scopedAlgs x -> f x) ->
   BaseAlgebra algs scopes f b ->
   (a -> b) ->
   Prog algs scopes scopedAlgs a ->
   b
-handleBase handleScoped BaseAlgebra{callB, enterB} gen = go
+handleBase handleScoped BaseAlgebra{callB, enterB} gen = go . getProg
  where
-  go :: Prog algs scopes scopedAlgs a -> b
+  go :: Syntax algs scopes (Prog scopedAlgs scopes scopedAlgs) a -> b
   go (Pure a) = gen a
   go (Call algOp) = callB $ fmap go algOp
   go (Enter innerOp) = enterB (fmap (handleScoped . fmap go) innerOp)
@@ -91,14 +76,14 @@ handleScoped ::
   forall f x algs scopes.
   (Functor f, Functor algs, Functor scopes) =>
   EndoAlgebra algs scopes f ->
-  ScopedProg algs scopes x ->
+  Prog algs scopes algs x ->
   f x
-handleScoped EndoAlgebra{pureE, callE, enterE} = go
+handleScoped EndoAlgebra{pureE, callE, enterE} = go . getProg
  where
-  go :: forall x. ScopedProg algs scopes x -> f x
-  go (PureE a) = pureE a
-  go (CallE algOp) = callE (fmap go algOp)
-  go (EnterE scopedOp) = enterE (fmap (go . fmap go) scopedOp)
+  go :: forall x. Syntax algs scopes (Prog algs scopes algs) x -> f x
+  go (Pure a) = pureE a
+  go (Call algOp) = callE (fmap go algOp)
+  go (Enter scopedOp) = enterE (fmap (go . fmap go . getProg) scopedOp)
 
 handleE ::
   forall algs scopes f x.
@@ -109,52 +94,18 @@ handleE ::
 handleE ealg@EndoAlgebra{pureE, callE, enterE} =
   handle ealg BaseAlgebra{callB = callE, enterB = enterE} pureE
 
--- Helpers to lift effect functors into Prog or ScopedProg
+-- Helpers to lift effect functors into Prog
 
-class
-  (Monad p, Functor (AlgebraicSig p)) =>
-  HasCall p
-  where
-  type AlgebraicSig p :: Signature
-  call :: AlgebraicSig p (p x) -> p x
+call ::
+  algs (Syntax algs scopes (Prog scopedAlgs scopes scopedAlgs) x) ->
+  Prog algs scopes scopedAlgs x
+call = Prog . Call
 
-instance
-  (Functor algs, Functor scopes, Functor scopedAlgs) =>
-  HasCall (Prog algs scopes scopedAlgs)
-  where
-  type AlgebraicSig (Prog algs scopes scopedAlgs) = algs
-  call = Call
-
-instance
-  (Functor algs, Functor scopes) =>
-  HasCall (ScopedProg algs scopes)
-  where
-  type AlgebraicSig (ScopedProg algs scopes) = algs
-  call = CallE
-
-class
-  (Monad p, Functor (ScopesSig p), Functor (ScopedAlgebraicSig p)) =>
-  HasScoped p
-  where
-  type ScopesSig p :: Signature
-  type ScopedAlgebraicSig p :: Signature
-  scoped :: ScopesSig p (ScopedProg (ScopedAlgebraicSig p) (ScopesSig p) x) -> p x
-
-instance
-  (Functor algs, Functor scopes, Functor scopedAlgs) =>
-  HasScoped (Prog algs scopes scopedAlgs)
-  where
-  type ScopesSig (Prog algs scopes scopedAlgs) = scopes
-  type ScopedAlgebraicSig (Prog algs scopes scopedAlgs) = scopedAlgs
-  scoped = Enter . fmap (fmap pure)
-
-instance
-  (Functor algs, Functor scopes) =>
-  HasScoped (ScopedProg algs scopes)
-  where
-  type ScopesSig (ScopedProg algs scopes) = scopes
-  type ScopedAlgebraicSig (ScopedProg algs scopes) = algs
-  scoped = EnterE . fmap (fmap pure)
+scoped ::
+  (Functor scopes, Functor scopedAlgs, Functor algs) =>
+  scopes (Prog scopedAlgs scopes scopedAlgs x) ->
+  Prog algs scopes scopedAlgs x
+scoped = Prog . Enter . fmap (fmap pure)
 
 -- State effect
 
@@ -164,19 +115,31 @@ data State s x = Swap (s -> s) ((s, s) -> x)
 data Local s x = Local s x
   deriving stock (Functor)
 
-swap :: (HasCall p, AlgebraicSig p ~ State s) => (s -> s) -> p (s, s)
+swap ::
+  (Functor scopes, Functor scopedAlgs) =>
+  (s -> s) ->
+  Prog (State s) scopes scopedAlgs (s, s)
 swap f = call (Swap f pure)
 
-modify :: (HasCall p, AlgebraicSig p ~ State s) => (s -> s) -> p ()
+modify ::
+  (Functor scopes, Functor scopedAlgs) =>
+  (s -> s) ->
+  Prog (State s) scopes scopedAlgs ()
 modify f = void (swap f)
 
-get :: (HasCall p, AlgebraicSig p ~ State s) => p s
+get ::
+  (Functor scopes, Functor scopedAlgs) =>
+  Prog (State s) scopes scopedAlgs s
 get = snd <$> swap id
 
-put :: (HasCall p, AlgebraicSig p ~ State s) => s -> p ()
+put :: (Functor scopes, Functor scopedAlgs) => s -> Prog (State s) scopes scopedAlgs ()
 put s = void $ swap (const s)
 
-local :: (HasScoped p, ScopesSig p ~ Local s) => s -> ScopedProg (ScopedAlgebraicSig p) (ScopesSig p) x -> p x
+local ::
+  (Functor scopedAlgs, Functor algs) =>
+  s ->
+  Prog scopedAlgs (Local s) scopedAlgs x ->
+  Prog algs (Local s) scopedAlgs x
 local s prog = scoped (Local s prog)
 
 -- Handle program with global state and local scoping
